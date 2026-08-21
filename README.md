@@ -151,3 +151,115 @@ kubectl rollout restart deployment/holmes-sample -n holmes-sample
 ```
 
 No credentials or model secret values belong in this repository.
+
+## Adding custom skills
+
+If you want to add a custom Holmes skill, follow the steps below. A skill is a procedural troubleshooting guide stored in a file named `SKILL.md`. Holmes reads each skill's description at startup, matches relevant skills to user questions, and loads the full instructions with its `fetch_skill` tool when needed.
+
+### 1. Write the skill
+
+Every `SKILL.md` must begin with YAML frontmatter. The `description` field is required and should clearly state when Holmes should use the skill.
+
+```markdown
+---
+name: payment-troubleshooting
+description: Troubleshoot pods, Prometheus metrics, and Elasticsearch logs for the payment service
+---
+
+## Goal
+
+Identify the root cause of failures affecting the payment service.
+
+## Workflow
+
+1. Inspect the payment namespace, pods, events, and resource usage.
+2. Query Prometheus for error rate, latency, CPU, and memory trends.
+3. Query Elasticsearch for application errors and relevant stack traces.
+4. Correlate Kubernetes, metric, and log evidence.
+5. Report the root cause, remediation, and verification steps.
+
+## Safety
+
+- Do not read or reveal Kubernetes Secrets.
+- Prefer read-only diagnostic operations.
+```
+
+### 2. Store skills in a ConfigMap
+
+Add a ConfigMap to `deploy/kubernetes.yaml`. Use one ConfigMap key per skill:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: holmes-skills
+  namespace: holmes-sample
+data:
+  payment.md: |
+    ---
+    name: payment-troubleshooting
+    description: Troubleshoot pods, Prometheus metrics, and Elasticsearch logs for the payment service
+    ---
+
+    ## Workflow
+
+    1. Inspect Kubernetes state.
+    2. Query Prometheus metrics.
+    3. Query Elasticsearch logs.
+    4. Correlate the evidence and recommend remediation.
+```
+
+### 3. Mount and register the skill directory
+
+Add the skill search path to the Holmes container:
+
+```yaml
+env:
+  - name: CUSTOM_SKILL_PATHS
+    value: /etc/holmes/skills
+```
+
+Add the volume mount to the Holmes container:
+
+```yaml
+volumeMounts:
+  - name: skills
+    mountPath: /etc/holmes/skills
+    readOnly: true
+```
+
+Add the volume to the Pod specification:
+
+```yaml
+volumes:
+  - name: skills
+    configMap:
+      name: holmes-skills
+      items:
+        - key: payment.md
+          path: payment-troubleshooting/SKILL.md
+```
+
+The mounted filename must be `SKILL.md`. For multiple skills, add another ConfigMap key and map it to a separate `<skill-name>/SKILL.md` path. Holmes scans custom skill directories up to two levels deep.
+
+### 4. Apply and reload
+
+Apply the updated manifest and restart the Deployment so Holmes rebuilds its skill catalog:
+
+```console
+kubectl apply -f deploy/kubernetes.yaml
+kubectl rollout restart deployment/holmes-sample -n holmes-sample
+kubectl rollout status deployment/holmes-sample -n holmes-sample --timeout=5m
+```
+
+### 5. Trigger the skill
+
+Ask a question that clearly matches the skill description:
+
+```console
+kubectl exec -n holmes-sample deployment/holmes-sample -c holmes -- \
+  holmes ask --model gpt-5.3-codex \
+  "Troubleshoot the payment service using Kubernetes status, Prometheus metrics, and Elasticsearch logs."
+```
+
+The skill description controls when the skill is selected; the Markdown body controls the diagnostic procedure Holmes follows after selection. If skills share the same normalized name, Holmes applies this priority order: remote Robusta skill, custom skill, then built-in skill.
