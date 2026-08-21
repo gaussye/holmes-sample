@@ -1,0 +1,7 @@
+.azure/
+.git/
+.github/
+deploy/
+scripts/
+README.md
+*.md

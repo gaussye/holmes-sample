@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+home_is_writable=false
+if [ -n "${HOME:-}" ] && [ -d "$HOME" ]; then
+    home_probe="$HOME/.holmes-home-write-test-$$"
+    if (umask 077 && : > "$home_probe") 2>/dev/null; then
+        rm -f "$home_probe"
+        home_is_writable=true
+    fi
+fi
+
+if [ "$home_is_writable" != true ]; then
+    HOME=/tmp
+    export HOME
+fi
+
+exec python3 /app/holmes_cli.py "$@"

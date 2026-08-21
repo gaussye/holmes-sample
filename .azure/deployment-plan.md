@@ -1,0 +1,139 @@
+# Holmes Sample Deployment Plan
+
+**Status:** Deployed
+
+## Scope and Constraints
+
+- Repository: public GitHub repository `gaussye/holmes-sample`.
+- Implementation: thin wrapper only; do not copy HolmesGPT source.
+- Base image: `robustadev/holmes:0.39.0@sha256:035bb9f788c8a5df851b023d6b3be21384bff75b4496299a547fbf52b0fb67d8`.
+- CLI wrapper: install `/usr/local/bin/holmes` as a POSIX shell script that runs `python3 /app/holmes_cli.py "$@"`.
+- Read-only compatibility: if `HOME` is unset or not writable, set `HOME=/tmp` before execution.
+- Preserve the base image entrypoint and default command. The Holmes Helm chart continues to override its command with `server.py`.
+- Never store, print, or copy Azure OpenAI secret values.
+
+## Azure Context
+
+- Deployment recipe: Azure CLI + ACR Tasks + Helm
+- Subscription: `ME-MngEnvMCAP566860-pengyongye-1`
+- Subscription ID: `3456866f-6478-471f-8d59-a29a335d797a`
+- Region: `centralus`
+- Resource group: `holmes-sample-rg`
+- Azure Container Registry: `ypyholmespublic`
+- ACR SKU: Standard
+- ACR public network access: enabled
+- ACR anonymous pull: enabled registry-wide; this registry is dedicated to this public sample.
+- Existing AKS resource group: `test-aks_group`
+- Existing AKS cluster: `test-aks`
+- Existing Helm release/namespace: `holmes-default` / `holmes-default`
+- Helm chart/version: `robusta/holmes` `0.39.0`
+
+## Artifacts
+
+- `Dockerfile`
+- `bin/holmes`
+- `deploy/values.yaml`
+- `scripts/build-and-push.ps1`
+- `scripts/deploy-aks.ps1`
+- `.dockerignore`
+- `.gitignore`
+- `README.md`
+- `.azure/deployment-plan.md`
+
+## Build and Publish
+
+1. Validate the wrapper and container build configuration.
+2. Create or reconcile `holmes-sample-rg` in `centralus`.
+3. Create or reconcile the dedicated Standard ACR `ypyholmespublic`.
+4. Enable public network access and anonymous pull.
+5. Build with ACR Tasks because local Docker is unavailable.
+6. Publish `ypyholmespublic.azurecr.io/holmes-sample:0.39.0-cli.1`.
+7. Publish the same image as `ypyholmespublic.azurecr.io/holmes-sample:latest`.
+8. Record the resulting tags and digests.
+
+## AKS Deployment
+
+1. Acquire credentials for `test-aks` in `test-aks_group`.
+2. Preserve the existing release values, including Azure model configuration and Kubernetes Secret references, without displaying secret values.
+3. Render and inspect the Helm upgrade using:
+   - `registry: ypyholmespublic.azurecr.io`
+   - `image: holmes-sample:0.39.0-cli.1`
+4. Upgrade only the `holmes-default` release in the `holmes-default` namespace.
+5. Do not modify the customized `holmes` or `holmes-ui` deployments.
+6. Verify rollout and confirm the exact image is running.
+
+## Validation and Proof
+
+- POSIX shell syntax passes for `bin/holmes`.
+- PowerShell scripts parse successfully.
+- Dockerfile uses the exact approved digest-pinned base image and preserves inherited entrypoint/default behavior.
+- Rendered Helm manifests use the approved registry and image while retaining current model values and Secret references.
+- Repository scan finds no committed secrets or secret values.
+- ACR anonymous pull is enabled and the workload has no image pull secret or ACR pull attachment dependency.
+- Pod reports the exact published image digest.
+- HTTP health and readiness checks pass.
+- `kubectl exec ... -- holmes ask --help` succeeds without manually setting `HOME`.
+- A real non-interactive `holmes ask` Kubernetes query succeeds using model `gpt-5.3-codex`.
+- Existing customized `holmes` and `holmes-ui` deployments remain unchanged.
+
+## Delivery
+
+1. Update this status to `Ready for Validation` after implementation and local/static verification.
+2. Run the mandatory `azure-validate` workflow and record proof here.
+3. Update this status to `Validated`.
+4. Run the mandatory `azure-deploy` workflow.
+5. Update this status to `Deployed` and record deployment proof.
+6. Commit all repository files to `main` with the required co-author trailer and push to GitHub.
+7. Report the repository URL, image pull command, tags/digests, ACR anonymous status, commit SHA, AKS rollout status, and CLI test result to the creator session.
+
+## Validation Proof
+
+**Validated at:** 2026-08-21T11:15:00+08:00
+
+### Validation Steps
+
+- [x] Azure CLI installation and authentication.
+- [x] Approved subscription, region, and existing AKS target verification.
+- [x] POSIX shell and PowerShell parser checks.
+- [x] Digest-pinned Docker build-context inspection; local Docker build is intentionally replaced by ACR Tasks.
+- [x] Helm chart 0.39.0 client rendering.
+- [x] Helm server-side dry-run against the current release with reused values and hidden Secret manifests.
+- [x] ACR name availability and Azure policy preflight.
+- [x] Static RBAC review: no role assignments are generated; anonymous pull intentionally avoids an AKS `AcrPull` assignment.
+- [x] Repository secret and Git diff checks.
+
+- Azure context confirmed: the approved subscription is enabled; `test-aks` is running in `centralus` on Kubernetes 1.35.5.
+- Existing release confirmed: `holmes-default` in namespace `holmes-default`, chart/app version 0.39.0, status deployed.
+- Current user values contain only `additionalEnvVars` and `modelList`; the deployment path uses `--reuse-values` and does not print those values.
+- `bin/holmes` passes POSIX shell syntax validation.
+- Both PowerShell deployment scripts pass parser validation.
+- Dockerfile uses the exact approved digest-pinned base image and does not override `ENTRYPOINT` or `CMD`.
+- Helm 0.39.0 renders `ypyholmespublic.azurecr.io/holmes-sample:0.39.0-cli.1`, an empty `imagePullSecrets` configuration, a read-only root filesystem, writable `/tmp`, and the chart's `["python3", "-u", "server.py"]` command override.
+- Helm server-side dry-run passed against the deployed release using `--reuse-values`, with Secret manifests hidden and output discarded.
+- ACR name `ypyholmespublic` is available, the `Microsoft.ContainerRegistry` provider is registered, and the three enforced subscription policies target unrelated Defender data services.
+- Azure CLI 2.81.0 supports the required Standard SKU, public-network, anonymous-pull, and multi-tag ACR Tasks arguments.
+- The pinned public base image digest resolves successfully.
+- Local Docker is unavailable by design; build execution is validated for ACR Tasks and will run only after the dedicated registry is provisioned.
+- ACR Tasks classic-builder compatibility was proven with portable `COPY`, CRLF normalization, and `chmod`; successful final build ID: `cj4`.
+- Repository security scan found no high-confidence private keys, API keys, bearer tokens, passwords, or Azure OpenAI credentials.
+- Git whitespace validation passes.
+
+## Deployment Record
+
+**Deployed at:** 2026-08-21T11:31:00+08:00
+
+- Resource group `holmes-sample-rg` is provisioned in `centralus`.
+- Dedicated registry `ypyholmespublic` is Standard SKU with public network access and registry-wide anonymous pull enabled.
+- ACR Task `cj4` built from the exact approved base digest.
+- Tags `0.39.0-cli.1` and `latest` both resolve to `sha256:d99004a82983b412640062a655c5510f9c78d88da26d090641d09812624db75d`.
+- The anonymous OAuth registry flow issued a pull-scoped token without credentials and returned HTTP 200 for the manifest at the exact final digest.
+- The AKS kubelet identity has zero `AcrPull` assignments on this registry.
+- Helm release `holmes-default` is deployed in namespace `holmes-default` with chart `holmes-0.39.0`.
+- Deployment `holmes-default-holmes` has one desired and one ready replica.
+- The running pod uses `ypyholmespublic.azurecr.io/holmes-sample:0.39.0-cli.1` at image ID `sha256:d99004a82983b412640062a655c5510f9c78d88da26d090641d09812624db75d`.
+- The pod has no named image pull Secret.
+- In-pod `/healthz` and `/readyz` checks both returned HTTP 200.
+- `holmes ask --help` passed without manually setting `HOME`; the wrapper detected the read-only home and used `/tmp`.
+- A non-interactive `holmes ask --model gpt-5.3-codex` Kubernetes query completed successfully and reported deployment and cluster health.
+- Customized workloads in namespaces `holmes` and `holmes-ui` remained separate from the namespace-scoped Helm release and ready.
+- The complete `scripts/deploy-aks.ps1 -RunLiveQuery` workflow exited successfully.
