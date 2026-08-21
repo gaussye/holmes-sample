@@ -1,38 +1,10 @@
 # holmes-sample
 
-A minimal public image layer that adds a `holmes` command to the official HolmesGPT 0.39.0 image. It does not vendor or copy the HolmesGPT source.
+## Background
 
-The image is based on the exact pinned artifact:
+HolmesGPT is an AI-powered troubleshooting assistant for Kubernetes and other observability systems. This repository provides a minimal public deployment sample based on the official HolmesGPT 0.39.0 image; it does not vendor or copy the HolmesGPT source.
 
-```text
-robustadev/holmes:0.39.0@sha256:035bb9f788c8a5df851b023d6b3be21384bff75b4496299a547fbf52b0fb67d8
-```
-
-The wrapper executes:
-
-```text
-python3 /app/holmes_cli.py "$@"
-```
-
-If `HOME` is unset or not writable, it uses `/tmp`. This makes the CLI work in the official Helm chart's read-only root filesystem without changing the inherited image entrypoint or default command.
-
-## Pull
-
-```console
-docker pull ypyholmespublic.azurecr.io/holmes-sample:0.39.0-cli.1
-```
-
-Anonymous pull is enabled on the dedicated public sample registry, so authentication is not required.
-
-## Build and publish
-
-PowerShell 7 and Azure CLI are required. The script uses ACR Tasks; local Docker is not required.
-
-```powershell
-.\scripts\build-and-push.ps1
-```
-
-The script safely reconciles the approved resource group and dedicated Standard ACR, enables anonymous pull, and publishes both `0.39.0-cli.1` and `latest`.
+The sample adds a `holmes` CLI wrapper with read-only filesystem support and deploys the public image directly with Kubernetes manifests. It is intended to give customers a small, reproducible starting point for testing Kubernetes investigations, optional observability integrations, and custom Holmes skills.
 
 ## Deploy with kubectl
 
