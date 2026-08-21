@@ -34,22 +34,120 @@ PowerShell 7 and Azure CLI are required. The script uses ACR Tasks; local Docker
 
 The script safely reconciles the approved resource group and dedicated Standard ACR, enables anonymous pull, and publishes both `0.39.0-cli.1` and `latest`.
 
-## Deploy to AKS
+## Deploy with kubectl
 
-PowerShell 7, Azure CLI, Helm, and kubectl are required.
+The reusable manifest requires only `kubectl`. It creates a ServiceAccount, a cluster-wide binding to Kubernetes' built-in read-only `view` role, the Holmes model ConfigMap, a Service, and a Deployment. The public image needs no registry credentials.
 
-Validate the upgrade against the current release:
+The manifest deliberately does not contain provider credentials. It expects a Secret named `holmes-model-env` with these environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `AZURE_API_KEY` | Azure OpenAI API key |
+| `AZURE_API_BASE` | Azure OpenAI endpoint, such as `https://<resource>.openai.azure.com` |
+| `AZURE_API_VERSION` | API version supported by the deployment |
+
+### PowerShell 7
+
+Set the values only in the current process:
 
 ```powershell
-.\scripts\deploy-aks.ps1 -ValidateOnly
+$env:AZURE_API_KEY = Read-Host "Azure OpenAI API key" -MaskInput
+$env:AZURE_API_BASE = "https://<resource>.openai.azure.com"
+$env:AZURE_API_VERSION = "<api-version>"
 ```
 
-Upgrade and verify the release:
+Create the namespace and apply the Secret directly from memory. The credential is not written to disk:
 
 ```powershell
-.\scripts\deploy-aks.ps1 -RunLiveQuery
+kubectl create namespace holmes-sample --dry-run=client -o yaml |
+  kubectl apply -f -
+
+$required = "AZURE_API_KEY", "AZURE_API_BASE", "AZURE_API_VERSION"
+$missing = $required | Where-Object {
+    [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_))
+}
+if ($missing) {
+    throw "Missing environment variables: $($missing -join ', ')"
+}
+
+$secret = @{
+    apiVersion = "v1"
+    kind = "Secret"
+    metadata = @{
+        name = "holmes-model-env"
+        namespace = "holmes-sample"
+    }
+    type = "Opaque"
+    stringData = @{
+        AZURE_API_KEY = $env:AZURE_API_KEY
+        AZURE_API_BASE = $env:AZURE_API_BASE
+        AZURE_API_VERSION = $env:AZURE_API_VERSION
+    }
+} | ConvertTo-Json -Depth 4 -Compress
+
+$secret | kubectl apply -f -
+Remove-Variable secret
+Remove-Item Env:AZURE_API_KEY
 ```
 
-The deployment reuses the current `holmes-default` release values so existing Azure model settings and Kubernetes Secret references remain intact. It changes only the top-level registry and image values, and verifies that the customized `holmes` and `holmes-ui` deployment pod templates are unchanged.
+Apply the workload and wait for readiness:
 
-No credentials or model secret values belong in this repository. Supply sensitive settings through the existing Kubernetes Secrets.
+```powershell
+kubectl apply -f .\deploy\kubernetes.yaml
+kubectl rollout status deployment/holmes-sample -n holmes-sample --timeout=5m
+```
+
+### Bash
+
+```bash
+read -rsp 'Azure OpenAI API key: ' AZURE_API_KEY
+export AZURE_API_KEY
+echo
+export AZURE_API_BASE='https://<resource>.openai.azure.com'
+export AZURE_API_VERSION='<api-version>'
+
+kubectl create namespace holmes-sample --dry-run=client -o yaml \
+  | kubectl apply -f -
+
+python3 -c '
+import json
+import os
+
+required = ("AZURE_API_KEY", "AZURE_API_BASE", "AZURE_API_VERSION")
+missing = [name for name in required if not os.environ.get(name)]
+if missing:
+    raise SystemExit(f"Missing environment variables: {missing}")
+
+print(json.dumps({
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {"name": "holmes-model-env", "namespace": "holmes-sample"},
+    "type": "Opaque",
+    "stringData": {name: os.environ[name] for name in required},
+}))
+' | kubectl apply -f -
+unset AZURE_API_KEY
+
+kubectl apply -f deploy/kubernetes.yaml
+kubectl rollout status deployment/holmes-sample -n holmes-sample --timeout=5m
+```
+
+### Run the CLI
+
+The Pod uses a read-only root filesystem and a writable `/tmp`. The `holmes` wrapper also detects an unwritable home directory automatically.
+
+```console
+kubectl exec -n holmes-sample deployment/holmes-sample -c holmes -- \
+  holmes ask --model gpt-5.3-codex \
+  "Check the cluster for unhealthy pods. Do not inspect Kubernetes Secrets."
+```
+
+For large clusters, prefer a focused prompt or ask Holmes to use `kubernetes_tabular_query`. The manifest sets `TOOL_MEMORY_LIMIT_MB=1500` while retaining the Pod's `2Gi` memory limit.
+
+To update credentials, change the local environment variables, apply the Secret again, and restart the Deployment:
+
+```console
+kubectl rollout restart deployment/holmes-sample -n holmes-sample
+```
+
+No credentials or model secret values belong in this repository.

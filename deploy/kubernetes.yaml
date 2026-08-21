@@ -1,0 +1,120 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: holmes-sample
+  namespace: holmes-sample
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: holmes-sample-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: holmes-sample
+    namespace: holmes-sample
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: holmes-model-config
+  namespace: holmes-sample
+data:
+  model_list.yaml: |
+    gpt-5.3-codex:
+      model: azure/gpt-5.3-codex
+      api_base: "{{ env.AZURE_API_BASE }}"
+      api_key: "{{ env.AZURE_API_KEY }}"
+      api_version: "{{ env.AZURE_API_VERSION }}"
+      temperature: 0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: holmes-sample
+  namespace: holmes-sample
+spec:
+  selector:
+    app.kubernetes.io/name: holmes-sample
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: holmes-sample
+  namespace: holmes-sample
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: holmes-sample
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: holmes-sample
+    spec:
+      serviceAccountName: holmes-sample
+      containers:
+        - name: holmes
+          image: ypyholmespublic.azurecr.io/holmes-sample:0.39.0-cli.1
+          imagePullPolicy: Always
+          command:
+            - python3
+            - -u
+            - /app/server.py
+          envFrom:
+            - secretRef:
+                name: holmes-model-env
+          env:
+            - name: HOME
+              value: /tmp
+            - name: LOG_LEVEL
+              value: INFO
+            - name: TOOL_MEMORY_LIMIT_MB
+              value: "1500"
+          ports:
+            - name: http
+              containerPort: 5050
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 2Gi
+            limits:
+              memory: 2Gi
+          securityContext:
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: model-config
+              mountPath: /etc/holmes/config
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: model-config
+          configMap:
+            name: holmes-model-config

@@ -1,4 +1,0 @@
-registry: ypyholmespublic.azurecr.io
-image: holmes-sample:0.39.0-cli.1
-imagePullPolicy: Always
-imagePullSecrets: []

@@ -32,9 +32,8 @@
 
 - `Dockerfile`
 - `bin/holmes`
-- `deploy/values.yaml`
+- `deploy/kubernetes.yaml`
 - `scripts/build-and-push.ps1`
-- `scripts/deploy-aks.ps1`
 - `.dockerignore`
 - `.gitignore`
 - `README.md`
@@ -51,16 +50,15 @@
 7. Publish the same image as `ypyholmespublic.azurecr.io/holmes-sample:latest`.
 8. Record the resulting tags and digests.
 
-## AKS Deployment
+## Reusable Kubernetes Deployment
 
-1. Acquire credentials for `test-aks` in `test-aks_group`.
-2. Preserve the existing release values, including Azure model configuration and Kubernetes Secret references, without displaying secret values.
-3. Render and inspect the Helm upgrade using:
-   - `registry: ypyholmespublic.azurecr.io`
-   - `image: holmes-sample:0.39.0-cli.1`
-4. Upgrade only the `holmes-default` release in the `holmes-default` namespace.
-5. Do not modify the customized `holmes` or `holmes-ui` deployments.
-6. Verify rollout and confirm the exact image is running.
+1. Create the target namespace with `kubectl apply -f -`.
+2. Build a Kubernetes Secret in memory from `AZURE_API_KEY`, `AZURE_API_BASE`, and `AZURE_API_VERSION`, then pipe it to `kubectl apply -f -`.
+3. Apply `deploy/kubernetes.yaml` with `kubectl apply -f`.
+4. Use the built-in read-only `view` ClusterRole and do not grant Secret read access.
+5. Mount a non-sensitive model ConfigMap that resolves provider settings from environment variables.
+6. Use a read-only root filesystem, writable `/tmp`, HTTP probes, a 2Gi Pod memory limit, and a 1500MiB tool subprocess limit.
+7. Verify rollout and run the CLI with `kubectl exec`.
 
 ## Validation and Proof
 
@@ -137,3 +135,14 @@
 - A non-interactive `holmes ask --model gpt-5.3-codex` Kubernetes query completed successfully and reported deployment and cluster health.
 - Customized workloads in namespaces `holmes` and `holmes-ui` remained separate from the namespace-scoped Helm release and ready.
 - The complete `scripts/deploy-aks.ps1 -RunLiveQuery` workflow exited successfully.
+
+### Reusable Manifest Update
+
+- The public distribution deployment method now uses `kubectl apply -f` instead of Helm.
+- Provider credentials are absent from the manifest and repository.
+- Azure API key, base URL, and API version are injected from a Kubernetes Secret populated from the deployer's local environment variables.
+- `kubectl apply --dry-run=client --validate=strict` accepted all five manifest resources.
+- The environment-to-Secret pipeline passed strict client validation without writing values to disk.
+- The built-in `view` ClusterRole was confirmed not to grant Secret access.
+- The model ConfigMap resolves all provider settings from runtime environment variables.
+- The original Helm deployment record above remains historical proof for the existing `holmes-default` environment.
