@@ -196,3 +196,52 @@
 - Live RBAC verification allows cluster-wide Pod listing through the built-in `view` role and denies Secret reads.
 - ACR remains Standard with public network access and anonymous pull enabled; tags `0.39.0-cli.1` and `latest` resolve to the deployed digest.
 - Existing deployment `holmes-default/holmes-default-holmes` remains ready on the same approved image.
+
+## Optional Observability Tools Update
+
+- Keep the default `deploy/kubernetes.yaml` deployment limited to Azure OpenAI configuration.
+- Remove Prometheus and Elasticsearch variables from the default Secret creation workflow.
+- Package `prometheus/metrics`, `elasticsearch/data`, and `elasticsearch/cluster` in a separate optional manifest.
+- Mount the optional toolset ConfigMap through an optional projected volume so the default deployment starts when the ConfigMap does not exist.
+- Add an English **Adding more tools** section with explicit credential injection, apply, rollout, verification, and removal steps.
+- Remove the optional tool ConfigMap and datasource keys from the live default deployment, then verify that core Holmes CLI behavior remains healthy.
+- Run the mandatory Azure validation and deployment workflow before committing and pushing.
+
+### Optional Tools Preparation Proof
+
+- `deploy/kubernetes.yaml` contains no Prometheus or Elasticsearch connection settings.
+- The default Secret workflow requires only `AZURE_API_KEY`, `AZURE_API_BASE`, and `AZURE_API_VERSION`.
+- `deploy/observability-tools.yaml` contains the three opt-in toolsets and resolves all connection settings from environment variables.
+- The Deployment uses optional Secret and projected ConfigMap sources, so neither optional resource is required for startup.
+- Client-side and server-side strict Kubernetes validation accepted both manifests.
+- Git whitespace validation passed.
+
+### Optional Tools Validation Proof
+
+**Validated at:** 2026-08-21T14:15:34+08:00
+
+- Azure CLI 2.81.0 is authenticated to the enabled approved subscription.
+- AKS `test-aks` is in `Succeeded` state in `centralus`.
+- ACR contains the approved `holmes-sample:0.39.0-cli.1` image tag.
+- Strict client-side and server-side Kubernetes validation accepted the default and optional manifests.
+- The default manifest contains none of the Prometheus/Elasticsearch toolset names or connection variables.
+- The optional manifest contains all three toolsets and all four runtime connection variables.
+- Both documented PowerShell Secret payloads passed strict client validation using placeholder values.
+- The ServiceAccount remains unable to read Kubernetes Secrets.
+- The Dockerfile retains the exact approved digest-pinned base image.
+- Git whitespace and credential-pattern scans passed.
+- Fresh-reader documentation testing found the default/optional split, enable steps, disable steps, commands, and Kubernetes wiring clear and internally consistent.
+
+### Optional Tools Deployment Proof
+
+**Deployed at:** 2026-08-21T14:25:46+08:00
+
+- The default manifest was applied successfully and the Deployment rolled out with one ready replica and zero restarts.
+- The live core Secret now contains only the three Azure OpenAI keys; no secret values were displayed.
+- The default Pod mounts only `model_list.yaml` and has no Prometheus or Elasticsearch environment variables.
+- `holmes toolset list` reports 30 data sources, with `prometheus/metrics`, `elasticsearch/data`, and `elasticsearch/cluster` all `disabled`.
+- The optional manifest and separate Secret were temporarily applied to verify the opt-in path.
+- With the optional resources present, both configuration files were mounted, both endpoints returned HTTP 200, and all three optional toolsets reported `enabled`.
+- The optional ConfigMap and Secret were then deleted and the Deployment restarted; the final deployed state is the core-only default.
+- Final in-Pod `/healthz` and `/readyz` checks returned HTTP 200 and `holmes ask --help` succeeded.
+- The current AI Services resource reports `disableLocalAuth: true`; the README now explains that this independent resource policy prevents the sample's key-based model calls until key authentication is allowed or Entra authentication is configured.
