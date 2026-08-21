@@ -30,6 +30,24 @@ data:
       api_key: "{{ env.AZURE_API_KEY }}"
       api_version: "{{ env.AZURE_API_VERSION }}"
       temperature: 0
+  custom_toolset.yaml: |
+    toolsets:
+      prometheus/metrics:
+        enabled: true
+        config:
+          prometheus_url: "{{ env.PROMETHEUS_URL }}"
+      elasticsearch/data:
+        enabled: true
+        config:
+          api_url: "{{ env.ELASTICSEARCH_URL }}"
+          username: "{{ env.ELASTICSEARCH_USERNAME }}"
+          password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+      elasticsearch/cluster:
+        enabled: true
+        config:
+          api_url: "{{ env.ELASTICSEARCH_URL }}"
+          username: "{{ env.ELASTICSEARCH_USERNAME }}"
+          password: "{{ env.ELASTICSEARCH_PASSWORD }}"
 ---
 apiVersion: v1
 kind: Service

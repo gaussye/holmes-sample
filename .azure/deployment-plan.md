@@ -14,7 +14,7 @@
 
 ## Azure Context
 
-- Deployment recipe: Azure CLI + ACR Tasks + Helm
+- Deployment recipe: Azure CLI + ACR Tasks + `kubectl apply`
 - Subscription: `ME-MngEnvMCAP566860-pengyongye-1`
 - Subscription ID: `3456866f-6478-471f-8d59-a29a335d797a`
 - Region: `centralus`
@@ -146,3 +146,53 @@
 - The built-in `view` ClusterRole was confirmed not to grant Secret access.
 - The model ConfigMap resolves all provider settings from runtime environment variables.
 - The original Helm deployment record above remains historical proof for the existing `holmes-default` environment.
+
+## Prometheus and Elasticsearch Integration Update
+
+- Discover the existing in-cluster Prometheus and Elasticsearch Services.
+- Add explicit `prometheus/metrics`, `elasticsearch/data`, and `elasticsearch/cluster` toolset configuration to the reusable ConfigMap.
+- Resolve URLs and Elasticsearch Basic Auth from environment variables.
+- Reuse or copy existing Kubernetes Secret references without reading, printing, or committing credential values.
+- Update the English deployment documentation with the additional environment variables.
+- Validate the manifest, Secret references, RBAC, toolset connectivity, and a real query before deployment.
+- Deploy the `holmes-sample` namespace with `kubectl apply -f`.
+
+### Integration Preparation Proof
+
+- Discovered Prometheus at `http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090`; readiness returned HTTP 200.
+- Discovered Elasticsearch at `http://elasticsearch-master.logging.svc.cluster.local:9200`; the API returned HTTP 200.
+- Confirmed existing Elasticsearch Basic Auth Secret `logging/elasticsearch-master-credentials` contains `username` and `password` keys without reading their values.
+- Added runtime-only Prometheus URL and Elasticsearch URL/username/password placeholders.
+- Added `prometheus/metrics`, `elasticsearch/data`, and `elasticsearch/cluster`.
+- Strict client-side Kubernetes schema validation and nested toolset YAML parsing passed.
+- The built-in `view` role does not grant Kubernetes Secret access.
+- Repository diff and credential-pattern scans passed.
+
+### Integration Validation Proof
+
+**Validated at:** 2026-08-21T13:52:00+08:00
+
+- `kubectl apply --dry-run=client --validate=strict` accepted the reusable manifest.
+- `kubectl auth reconcile --dry-run=client` accepted the ClusterRoleBinding.
+- Python/PyYAML parsed all three nested Holmes toolset configurations.
+- The Azure OpenAI key source was identified as a Secret key reference without reading its value.
+- The Azure OpenAI base URL and API version sources were identified as existing non-secret environment values.
+- The Elasticsearch credential copy pipeline passed strict Secret validation using only base64 payload transfer and no value output.
+- Prometheus and Elasticsearch endpoints returned HTTP 200 from inside the cluster.
+- Static RBAC verification confirmed the `view` role does not permit Secret reads.
+
+### Integration Deployment Proof
+
+**Deployed at:** 2026-08-21T13:53:17+08:00
+
+- Standalone deployment `holmes-sample/holmes-sample` completed its rollout with one updated, available, and ready replica and zero container restarts.
+- The running Pod uses `ypyholmespublic.azurecr.io/holmes-sample:0.39.0-cli.1` at image ID `sha256:d99004a82983b412640062a655c5510f9c78d88da26d090641d09812624db75d`.
+- The Pod has no named image pull Secret and uses the read-only `holmes-sample` ServiceAccount.
+- In-Pod `/healthz` and `/readyz` checks both returned HTTP 200.
+- All seven required Secret keys are present; no credential values were displayed.
+- Direct in-Pod Prometheus readiness and authenticated Elasticsearch API checks both returned HTTP 200.
+- Holmes enabled `prometheus/metrics`, `elasticsearch/data`, and `elasticsearch/cluster` from the mounted configuration.
+- A real non-interactive `holmes ask --model gpt-5.3-codex` invocation called all three toolsets successfully: Prometheus returned 28 `up` series, Elasticsearch cluster health was `green`, and Elasticsearch mappings returned index names.
+- Live RBAC verification allows cluster-wide Pod listing through the built-in `view` role and denies Secret reads.
+- ACR remains Standard with public network access and anonymous pull enabled; tags `0.39.0-cli.1` and `latest` resolve to the deployed digest.
+- Existing deployment `holmes-default/holmes-default-holmes` remains ready on the same approved image.
